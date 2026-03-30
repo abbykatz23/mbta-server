@@ -1,0 +1,5 @@
+fastapi
+mangum
+boto3
+pillow
+pydantic

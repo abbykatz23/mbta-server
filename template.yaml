@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        S3_BUCKET: !Ref SpriteBucket
+        DYNAMODB_TABLE: !Ref SubmissionsTable
+        PI_API_KEY: !Sub "{{resolve:ssm:/mbta/pi_api_key}}"
+        ADMIN_API_KEY: !Sub "{{resolve:ssm:/mbta/admin_api_key}}"
+
+Resources:
+  MbtaServerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: app.handler
+      Runtime: python3.12
+      Policies:
+        - S3FullAccessPolicy:
+            BucketName: !Ref SpriteBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubmissionsTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+  SpriteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mbta-sprites-${AWS::AccountId}"
+
+  SubmissionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: mbta-sprite-submissions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"

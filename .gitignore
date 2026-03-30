@@ -1,0 +1,8 @@
+package/
+dependencies/
+mbta-server.zip
+.env
+__pycache__/
+*.pyc
+samconfig.toml
+.aws-sam/
