@@ -1,6 +1,5 @@
 import base64
 import io
-import json
 import os
 import re
 import uuid
@@ -24,7 +23,6 @@ app.add_middleware(
 S3_BUCKET = os.environ["S3_BUCKET"]
 DYNAMODB_TABLE = os.environ["DYNAMODB_TABLE"]
 PI_API_KEY = os.environ["PI_API_KEY"]
-ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]
 
 SPRITE_WIDTH = 26
 SPRITE_HEIGHT = 5
@@ -39,11 +37,6 @@ table = dynamo.Table(DYNAMODB_TABLE)
 
 def require_pi_key(x_api_key: str = Header(...)):
     if x_api_key != PI_API_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-def require_admin_key(x_api_key: str = Header(...)):
-    if x_api_key != ADMIN_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -86,10 +79,10 @@ def _validate_png_bytes(png_bytes: bytes) -> None:
         w, h = img.size
     except Exception:
         raise HTTPException(status_code=400, detail="Could not open PNG")
-    if (w, h) != (SPRITE_WIDTH, SPRITE_HEIGHT):
+    if h != SPRITE_HEIGHT or not (1 <= w <= SPRITE_WIDTH):
         raise HTTPException(
             status_code=400,
-            detail=f"PNG must be {SPRITE_WIDTH}×{SPRITE_HEIGHT} px, got {w}×{h}"
+            detail=f"PNG must be {SPRITE_HEIGHT} px tall and 1–{SPRITE_WIDTH} px wide, got {w}×{h}"
         )
 
 
@@ -117,12 +110,13 @@ def submit(body: SubmitRequest):
         "id": submission_id,
         "name": name,
         "birthday": body.birthday,
-        "status": "pending",
+        "status": "approved",
         "s3_key": s3_key,
         "submitted_at": submitted_at,
+        "approved_at": submitted_at,
     })
 
-    return {"id": submission_id, "status": "pending"}
+    return {"id": submission_id, "status": "approved"}
 
 
 @app.get("/sprites")
@@ -156,41 +150,9 @@ def get_sprites(since: str = None, x_api_key: str = Header(...)):
     return result
 
 
-@app.get("/pending")
-def list_pending(x_api_key: str = Header(...)):
-    require_admin_key(x_api_key)
-
-    response = table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("pending")
-    )
-    items = response.get("Items", [])
-    return sorted(items, key=lambda x: x.get("submitted_at", ""))
-
-
-@app.post("/approve/{submission_id}")
-def approve(submission_id: str = Path(...), x_api_key: str = Header(...)):
-    require_admin_key(x_api_key)
-
-    response = table.get_item(Key={"id": submission_id})
-    item = response.get("Item")
-    if not item:
-        raise HTTPException(status_code=404, detail="Submission not found")
-    if item["status"] == "approved":
-        return {"id": submission_id, "status": "approved"}
-
-    approved_at = datetime.now(timezone.utc).isoformat()
-    table.update_item(
-        Key={"id": submission_id},
-        UpdateExpression="SET #s = :approved, approved_at = :ts",
-        ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={":approved": "approved", ":ts": approved_at},
-    )
-    return {"id": submission_id, "status": "approved"}
-
-
 @app.delete("/submissions/{submission_id}", status_code=204)
 def delete_submission(submission_id: str = Path(...), x_api_key: str = Header(...)):
-    require_admin_key(x_api_key)
+    require_pi_key(x_api_key)
 
     response = table.get_item(Key={"id": submission_id})
     if not response.get("Item"):
