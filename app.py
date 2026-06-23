@@ -8,11 +8,18 @@ from datetime import datetime, timezone
 
 import boto3
 from fastapi import FastAPI, Header, HTTPException, Path
+from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from PIL import Image
 from pydantic import BaseModel
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://*.netlify.app"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 S3_BUCKET = os.environ["S3_BUCKET"]
 DYNAMODB_TABLE = os.environ["DYNAMODB_TABLE"]
