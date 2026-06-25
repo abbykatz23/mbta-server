@@ -212,6 +212,7 @@ def list_submissions():
         result.append({
             "id": item["id"],
             "name": item["name"],
+            "birthday": item.get("birthday", ""),
             "submitted_at": item.get("submitted_at", ""),
             "png_base64": base64.b64encode(png_bytes).decode(),
         })
