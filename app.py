@@ -50,6 +50,7 @@ class SubmitRequest(BaseModel):
     name: str
     birthday: str       # "MM-DD"
     pngData: str        # data URL: "data:image/png;base64,..."
+    flip_rtl: bool = True
 
 
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
@@ -150,6 +151,8 @@ def submit(body: SubmitRequest):
         "s3_key": s3_key,
         "submitted_at": submitted_at,
         "approved_at": submitted_at,
+        "updated_at": submitted_at,
+        "flip_rtl": body.flip_rtl,
     })
 
     return {"id": submission_id, "status": "approved"}
@@ -167,7 +170,8 @@ def get_sprites(since: str | None = None, x_api_key: str = Header(...)):
             datetime.fromisoformat(since)
         except ValueError:
             raise HTTPException(status_code=400, detail="since must be an ISO timestamp")
-        scan_kwargs["FilterExpression"] &= boto3.dynamodb.conditions.Attr("approved_at").gte(since)
+        from boto3.dynamodb.conditions import Attr
+        scan_kwargs["FilterExpression"] &= (Attr("approved_at").gte(since) | Attr("updated_at").gte(since))
 
     items = _scan_all(table, **scan_kwargs)
 
@@ -180,6 +184,7 @@ def get_sprites(since: str | None = None, x_api_key: str = Header(...)):
             "name": item["name"],
             "birthday": item["birthday"],
             "png_base64": base64.b64encode(png_bytes).decode(),
+            "flip_rtl": item.get("flip_rtl", True),
         })
 
     return result
@@ -215,6 +220,7 @@ def list_submissions():
             "birthday": item.get("birthday", ""),
             "submitted_at": item.get("submitted_at", ""),
             "png_base64": base64.b64encode(png_bytes).decode(),
+            "flip_rtl": item.get("flip_rtl", True),
         })
     return sorted(result, key=lambda x: x["submitted_at"])
 
@@ -222,6 +228,7 @@ def list_submissions():
 class UpdateRequest(BaseModel):
     name: str | None = None
     birthday: str | None = None
+    flip_rtl: bool | None = None
 
 
 @app.patch("/submissions/{submission_id}")
@@ -234,6 +241,8 @@ def update_submission(body: UpdateRequest, submission_id: str = Path(...), x_api
         raise HTTPException(status_code=404, detail="Submission not found")
 
     expr_parts, expr_values, expr_names = [], {}, {}
+    expr_parts.append("updated_at = :updated_at")
+    expr_values[":updated_at"] = datetime.now(timezone.utc).isoformat()
     if body.name is not None:
         name = body.name.strip()
         if not name or len(name) > 60:
@@ -246,7 +255,10 @@ def update_submission(body: UpdateRequest, submission_id: str = Path(...), x_api
         expr_parts.append("#b = :birthday")
         expr_names["#b"] = "birthday"
         expr_values[":birthday"] = body.birthday
-    if not expr_parts:
+    if body.flip_rtl is not None:
+        expr_parts.append("flip_rtl = :flip_rtl")
+        expr_values[":flip_rtl"] = body.flip_rtl
+    if len(expr_parts) == 1:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
     kwargs = {
