@@ -32,19 +32,20 @@ SPRITE_HEIGHT = 5
 MAX_FILE_BYTES = 10_000
 MAX_SUBMISSIONS = 500
 
-HARDCODED_MONTH_TRAINS = {
-    "january": 1,
-    "february": 2,
-    "march": 3,
-    "april": 4,
-    "may": 5,
-    "june": 6,
-    "july": 7,
-    "august": 8,
-    "september": 9,
-    "october": 10,
-    "november": 11,
-    "december": 12,
+HARDCODED_SPECIAL_TRAINS = {
+    "january": {"birthday_month": 1},
+    "february": {"birthday_month": 2},
+    "march": {"birthday_month": 3},
+    "april": {"birthday_month": 4},
+    "may": {"birthday_month": 5},
+    "june": {"birthday_month": 6},
+    "july": {"birthday_month": 7},
+    "august": {"birthday_month": 8},
+    "september": {"birthday_month": 9},
+    "october": {"birthday_month": 10},
+    "november": {"birthday_month": 11},
+    "december": {"birthday_month": 12},
+    "roommates": {},
 }
 
 SPECIAL_TRAIN_QUEUE_ID = "__special_queue__"
@@ -327,13 +328,13 @@ def get_queued(x_api_key: str = Header(...)):
 
 @app.get("/special-trains")
 def list_special_trains():
-    return [{"name": name, "birthday_month": month} for name, month in HARDCODED_MONTH_TRAINS.items()]
+    return [{"name": name, **meta} for name, meta in HARDCODED_SPECIAL_TRAINS.items()]
 
 
 @app.post("/queue-special/{name}")
 def queue_special_train(name: str = Path(...), x_api_key: str = Header(...)):
     require_pi_key(x_api_key)
-    if name not in HARDCODED_MONTH_TRAINS:
+    if name not in HARDCODED_SPECIAL_TRAINS:
         raise HTTPException(status_code=404, detail="Unknown special train")
     table.update_item(
         Key={"id": SPECIAL_TRAIN_QUEUE_ID},
