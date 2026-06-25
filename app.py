@@ -1,4 +1,5 @@
 import base64
+import hmac
 import io
 import os
 import re
@@ -12,12 +13,14 @@ from mangum import Mangum
 from PIL import Image
 from pydantic import BaseModel
 
+ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "http://localhost:5173")
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://*.netlify.app"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[ALLOWED_ORIGIN],
+    allow_methods=["GET", "POST", "DELETE", "PATCH"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 S3_BUCKET = os.environ["S3_BUCKET"]
@@ -27,6 +30,7 @@ PI_API_KEY = os.environ["PI_API_KEY"]
 SPRITE_WIDTH = 26
 SPRITE_HEIGHT = 5
 MAX_FILE_BYTES = 10_000
+MAX_SUBMISSIONS = 500
 
 s3 = boto3.client("s3")
 dynamo = boto3.resource("dynamodb")
@@ -35,8 +39,8 @@ table = dynamo.Table(DYNAMODB_TABLE)
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
-def require_pi_key(x_api_key: str = Header(...)):
-    if x_api_key != PI_API_KEY:
+def require_pi_key(x_api_key: str):
+    if not hmac.compare_digest(x_api_key, PI_API_KEY):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -46,6 +50,24 @@ class SubmitRequest(BaseModel):
     name: str
     birthday: str       # "MM-DD"
     pngData: str        # data URL: "data:image/png;base64,..."
+
+
+_UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
+
+def _validate_uuid(value: str):
+    if not _UUID_RE.match(value):
+        raise HTTPException(status_code=400, detail="Invalid ID format")
+
+
+def _scan_all(table, **kwargs):
+    items = []
+    resp = table.scan(**kwargs)
+    items.extend(resp.get("Items", []))
+    while "LastEvaluatedKey" in resp:
+        resp = table.scan(**{**kwargs, "ExclusiveStartKey": resp["LastEvaluatedKey"]})
+        items.extend(resp.get("Items", []))
+    return items
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
@@ -76,7 +98,11 @@ def _validate_png_bytes(png_bytes: bytes) -> None:
         raise HTTPException(status_code=400, detail=f"PNG must be under {MAX_FILE_BYTES} bytes")
     try:
         img = Image.open(io.BytesIO(png_bytes))
+        if img.format != "PNG":
+            raise HTTPException(status_code=400, detail="File must be a PNG")
         w, h = img.size
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="Could not open PNG")
     if h != SPRITE_HEIGHT or not (1 <= w <= SPRITE_WIDTH):
@@ -95,6 +121,16 @@ def submit(body: SubmitRequest):
         raise HTTPException(status_code=400, detail="name is required")
     if len(name) > 60:
         raise HTTPException(status_code=400, detail="name must be 60 characters or fewer")
+    name = re.sub(r'[^\x20-\x7E]', '', name).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    count_resp = table.scan(
+        FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("approved"),
+        Select="COUNT",
+    )
+    if count_resp.get("Count", 0) >= MAX_SUBMISSIONS:
+        raise HTTPException(status_code=503, detail="Submission limit reached. Try again later.")
 
     _validate_birthday(body.birthday)
     png_bytes = _decode_png(body.pngData)
@@ -120,7 +156,7 @@ def submit(body: SubmitRequest):
 
 
 @app.get("/sprites")
-def get_sprites(since: str = None, x_api_key: str = Header(...)):
+def get_sprites(since: str | None = None, x_api_key: str = Header(...)):
     require_pi_key(x_api_key)
 
     scan_kwargs = {
@@ -133,8 +169,7 @@ def get_sprites(since: str = None, x_api_key: str = Header(...)):
             raise HTTPException(status_code=400, detail="since must be an ISO timestamp")
         scan_kwargs["FilterExpression"] &= boto3.dynamodb.conditions.Attr("approved_at").gte(since)
 
-    response = table.scan(**scan_kwargs)
-    items = response.get("Items", [])
+    items = _scan_all(table, **scan_kwargs)
 
     result = []
     for item in items:
@@ -153,6 +188,7 @@ def get_sprites(since: str = None, x_api_key: str = Header(...)):
 @app.delete("/submissions/{submission_id}", status_code=204)
 def delete_submission(submission_id: str = Path(...), x_api_key: str = Header(...)):
     require_pi_key(x_api_key)
+    _validate_uuid(submission_id)
 
     response = table.get_item(Key={"id": submission_id})
     if not response.get("Item"):
@@ -161,6 +197,102 @@ def delete_submission(submission_id: str = Path(...), x_api_key: str = Header(..
     s3_key = response["Item"]["s3_key"]
     s3.delete_object(Bucket=S3_BUCKET, Key=s3_key)
     table.delete_item(Key={"id": submission_id})
+
+
+@app.get("/submissions")
+def list_submissions():
+    items = _scan_all(
+        table,
+        FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("approved")
+    )
+    result = []
+    for item in items:
+        png_obj = s3.get_object(Bucket=S3_BUCKET, Key=item["s3_key"])
+        png_bytes = png_obj["Body"].read()
+        result.append({
+            "id": item["id"],
+            "name": item["name"],
+            "submitted_at": item.get("submitted_at", ""),
+            "png_base64": base64.b64encode(png_bytes).decode(),
+        })
+    return sorted(result, key=lambda x: x["submitted_at"])
+
+
+class UpdateRequest(BaseModel):
+    name: str | None = None
+    birthday: str | None = None
+
+
+@app.patch("/submissions/{submission_id}")
+def update_submission(body: UpdateRequest, submission_id: str = Path(...), x_api_key: str = Header(...)):
+    require_pi_key(x_api_key)
+    _validate_uuid(submission_id)
+
+    response = table.get_item(Key={"id": submission_id})
+    if not response.get("Item"):
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    expr_parts, expr_values, expr_names = [], {}, {}
+    if body.name is not None:
+        name = body.name.strip()
+        if not name or len(name) > 60:
+            raise HTTPException(status_code=400, detail="Invalid name")
+        expr_parts.append("#n = :name")
+        expr_names["#n"] = "name"
+        expr_values[":name"] = name
+    if body.birthday is not None:
+        _validate_birthday(body.birthday)
+        expr_parts.append("#b = :birthday")
+        expr_names["#b"] = "birthday"
+        expr_values[":birthday"] = body.birthday
+    if not expr_parts:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    kwargs = {
+        "Key": {"id": submission_id},
+        "UpdateExpression": "SET " + ", ".join(expr_parts),
+        "ExpressionAttributeValues": expr_values,
+    }
+    if expr_names:
+        kwargs["ExpressionAttributeNames"] = expr_names
+    table.update_item(**kwargs)
+    return {"id": submission_id, "status": "updated"}
+
+
+@app.post("/queue/{submission_id}")
+def queue_submission(submission_id: str = Path(...), x_api_key: str = Header(...)):
+    require_pi_key(x_api_key)
+    _validate_uuid(submission_id)
+
+    response = table.get_item(Key={"id": submission_id})
+    if not response.get("Item"):
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    table.update_item(
+        Key={"id": submission_id},
+        UpdateExpression="SET queued = :true",
+        ExpressionAttributeValues={":true": True},
+    )
+    return {"id": submission_id, "queued": True}
+
+
+@app.post("/queued/consume")
+def get_queued(x_api_key: str = Header(...)):
+    require_pi_key(x_api_key)
+
+    items = _scan_all(
+        table,
+        FilterExpression=boto3.dynamodb.conditions.Attr("queued").eq(True)
+    )
+    ids = [item["id"] for item in items]
+
+    for item in items:
+        table.update_item(
+            Key={"id": item["id"]},
+            UpdateExpression="REMOVE queued",
+        )
+
+    return {"ids": ids}
 
 
 handler = Mangum(app, lifespan="off", api_gateway_base_path=None)

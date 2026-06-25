@@ -10,6 +10,7 @@ Globals:
         S3_BUCKET: !Ref SpriteBucket
         DYNAMODB_TABLE: !Ref SubmissionsTable
         PI_API_KEY: !Sub "{{resolve:ssm:/mbta/pi_api_key}}"
+        ALLOWED_ORIGIN: !Sub "{{resolve:ssm:/mbta/allowed_origin}}"
 
 Resources:
   MbtaServerFunction:
@@ -19,8 +20,13 @@ Resources:
       Handler: app.handler
       Runtime: python3.12
       Policies:
-        - S3FullAccessPolicy:
-            BucketName: !Ref SpriteBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource: !Sub "arn:aws:s3:::${SpriteBucket}/sprites/*"
         - DynamoDBCrudPolicy:
             TableName: !Ref SubmissionsTable
       Events:
@@ -29,14 +35,32 @@ Resources:
           Properties:
             Path: /{proxy+}
             Method: ANY
+            RestApiId: !Ref ServerlessRestApi
+
+  ServerlessRestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingBurstLimit: 50
+          ThrottlingRateLimit: 20
 
   SpriteBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
     Properties:
       BucketName: !Sub "mbta-sprites-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
 
   SubmissionsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
     Properties:
       TableName: mbta-sprite-submissions
       BillingMode: PAY_PER_REQUEST
