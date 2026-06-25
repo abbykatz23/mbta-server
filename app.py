@@ -32,6 +32,23 @@ SPRITE_HEIGHT = 5
 MAX_FILE_BYTES = 10_000
 MAX_SUBMISSIONS = 500
 
+HARDCODED_MONTH_TRAINS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+
+SPECIAL_TRAIN_QUEUE_ID = "__special_queue__"
+
 s3 = boto3.client("s3")
 dynamo = boto3.resource("dynamodb")
 table = dynamo.Table(DYNAMODB_TABLE)
@@ -306,6 +323,38 @@ def get_queued(x_api_key: str = Header(...)):
         )
 
     return {"ids": ids}
+
+
+@app.get("/special-trains")
+def list_special_trains():
+    return [{"name": name, "birthday_month": month} for name, month in HARDCODED_MONTH_TRAINS.items()]
+
+
+@app.post("/queue-special/{name}")
+def queue_special_train(name: str = Path(...), x_api_key: str = Header(...)):
+    require_pi_key(x_api_key)
+    if name not in HARDCODED_MONTH_TRAINS:
+        raise HTTPException(status_code=404, detail="Unknown special train")
+    table.update_item(
+        Key={"id": SPECIAL_TRAIN_QUEUE_ID},
+        UpdateExpression="SET queued_names = list_append(if_not_exists(queued_names, :empty), :name)",
+        ExpressionAttributeValues={":empty": [], ":name": [name]},
+    )
+    return {"name": name, "queued": True}
+
+
+@app.post("/queued-special/consume")
+def consume_queued_special(x_api_key: str = Header(...)):
+    require_pi_key(x_api_key)
+    response = table.get_item(Key={"id": SPECIAL_TRAIN_QUEUE_ID})
+    item = response.get("Item", {})
+    names = list(item.get("queued_names", []))
+    if names:
+        table.update_item(
+            Key={"id": SPECIAL_TRAIN_QUEUE_ID},
+            UpdateExpression="REMOVE queued_names",
+        )
+    return {"names": names}
 
 
 handler = Mangum(app, lifespan="off", api_gateway_base_path=None)
