@@ -13,12 +13,12 @@ from mangum import Mangum
 from PIL import Image
 from pydantic import BaseModel
 
-ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "http://localhost:5173")
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")]
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ALLOWED_ORIGIN],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "DELETE", "PATCH"],
     allow_headers=["Content-Type", "X-API-Key"],
 )
