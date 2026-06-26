@@ -35,7 +35,7 @@ MAX_SUBMISSIONS = 500
 HARDCODED_SPECIAL_TRAINS = {
     "january": {"birthday_month": 1},
     "february": {"birthday_month": 2},
-    "march": {"birthday_month": 3, "flip_rtl": True},
+    "march": {"birthday_month": 3},
     "april": {"birthday_month": 4},
     "may": {"birthday_month": 5},
     "june": {"birthday_month": 6},
@@ -49,7 +49,6 @@ HARDCODED_SPECIAL_TRAINS = {
 }
 
 SPECIAL_TRAIN_QUEUE_ID = "__special_queue__"
-SPECIAL_TRAIN_CONFIG_ID = "__special_config__"
 
 s3 = boto3.client("s3")
 dynamo = boto3.resource("dynamodb")
@@ -327,43 +326,9 @@ def get_queued(x_api_key: str = Header(...)):
     return {"ids": ids}
 
 
-def _special_trains_with_overrides() -> dict:
-    response = table.get_item(Key={"id": SPECIAL_TRAIN_CONFIG_ID})
-    overrides = response.get("Item", {}).get("trains", {})
-    merged = {}
-    for name, meta in HARDCODED_SPECIAL_TRAINS.items():
-        merged[name] = {**meta, **overrides.get(name, {})}
-    return merged
-
-
 @app.get("/special-trains")
 def list_special_trains():
-    trains = _special_trains_with_overrides()
-    result = []
-    for name, meta in trains.items():
-        entry = {"name": name, "flip_rtl": bool(meta.get("flip_rtl", False))}
-        if "birthday_month" in meta:
-            entry["birthday_month"] = meta["birthday_month"]
-        if "birthday" in meta:
-            entry["birthday"] = meta["birthday"]
-        result.append(entry)
-    return result
-
-
-class SpecialTrainUpdate(BaseModel):
-    flip_rtl: bool
-
-
-@app.patch("/special-trains/{name}")
-def update_special_train(body: SpecialTrainUpdate, name: str = Path(...), x_api_key: str = Header(...)):
-    require_pi_key(x_api_key)
-    if name not in HARDCODED_SPECIAL_TRAINS:
-        raise HTTPException(status_code=404, detail="Unknown special train")
-    response = table.get_item(Key={"id": SPECIAL_TRAIN_CONFIG_ID})
-    trains = response.get("Item", {}).get("trains", {})
-    trains[name] = {**trains.get(name, {}), "flip_rtl": body.flip_rtl}
-    table.put_item(Item={"id": SPECIAL_TRAIN_CONFIG_ID, "trains": trains})
-    return {"name": name, "flip_rtl": body.flip_rtl}
+    return [{"name": name, **meta} for name, meta in HARDCODED_SPECIAL_TRAINS.items()]
 
 
 @app.post("/queue-special/{name}")
