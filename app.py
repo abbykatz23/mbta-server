@@ -208,6 +208,17 @@ def get_sprites(since: str | None = None, x_api_key: str = Header(...)):
     return result
 
 
+@app.get("/sprite-ids")
+def get_sprite_ids(x_api_key: str = Header(...)):
+    require_pi_key(x_api_key)
+    items = _scan_all(
+        table,
+        FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("approved"),
+        ProjectionExpression="id",
+    )
+    return {"ids": [item["id"] for item in items]}
+
+
 @app.delete("/submissions/{submission_id}", status_code=204)
 def delete_submission(submission_id: str = Path(...), x_api_key: str = Header(...)):
     require_pi_key(x_api_key)
