@@ -19,7 +19,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST", "DELETE", "PATCH"],
+    allow_methods=["GET", "POST", "DELETE", "PATCH", "PUT"],
     allow_headers=["Content-Type", "X-API-Key"],
 )
 
@@ -367,6 +367,59 @@ def consume_queued_special(x_api_key: str = Header(...)):
             UpdateExpression="REMOVE queued_names",
         )
     return {"names": names}
+
+
+DISPLAY_STATE_ID = "__display_state__"
+
+
+class ArrivalState(BaseModel):
+    colors: list[str]
+    lane: str        # "top_left" | "bottom_right"
+    direction: str   # "left_to_right" | "right_to_left"
+
+
+class PredictionsState(BaseModel):
+    north_d: list[int | None]
+    north_e: list[int | None]
+    wonderland: list[int | None]
+    b: list[int | None]
+    c: list[int | None]
+    alewife: list[int | None]
+    oak_grove: list[int | None]
+    d: list[int | None]
+    e: list[int | None]
+    ashmont_braintree: list[int | None]
+    forest_hills: list[int | None]
+
+
+class DisplayStateRequest(BaseModel):
+    pushed_at: str
+    predictions: PredictionsState
+    arrivals: list[ArrivalState]
+
+
+@app.put("/display-state", status_code=204)
+def put_display_state(body: DisplayStateRequest, x_api_key: str = Header(...)):
+    require_pi_key(x_api_key)
+    table.put_item(Item={
+        "id": DISPLAY_STATE_ID,
+        "pushed_at": body.pushed_at,
+        "predictions": body.predictions.model_dump(),
+        "arrivals": [a.model_dump() for a in body.arrivals],
+    })
+
+
+@app.get("/display-state")
+def get_display_state():
+    response = table.get_item(Key={"id": DISPLAY_STATE_ID})
+    item = response.get("Item")
+    if not item:
+        return {"pushed_at": None, "predictions": None, "arrivals": []}
+    return {
+        "pushed_at": item["pushed_at"],
+        "predictions": item["predictions"],
+        "arrivals": item["arrivals"],
+    }
 
 
 handler = Mangum(app, lifespan="off", api_gateway_base_path=None)
