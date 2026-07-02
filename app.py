@@ -374,8 +374,9 @@ DISPLAY_STATE_ID = "__display_state__"
 
 class ArrivalState(BaseModel):
     colors: list[str]
-    lane: str        # "top_left" | "bottom_right"
-    direction: str   # "left_to_right" | "right_to_left"
+    lane: str              # "top_left" | "bottom_right"
+    direction: str         # "left_to_right" | "right_to_left"
+    sprite_b64: str | None = None
 
 
 class PredictionsState(BaseModel):
