@@ -12,7 +12,7 @@ client) · **mbta-server** (this repo) ·
 
 | Route | Auth | Purpose |
 |---|---|---|
-| `POST /submit` | — | Frontend submits a hand-drawn pixel sprite (name, birthday, PNG data URL). Validates dimensions/size, auto-approves. |
+| `POST /submit` | — | Frontend submits a hand-drawn pixel sprite (name, birthday, PNG data URL). Validates dimensions/size and a Turnstile captcha token, auto-approves. |
 | `GET /submissions` | — | Public list of approved submissions, powers the gallery page. |
 | `GET /special-trains` | — | List of the hardcoded monthly/one-off trains. |
 | `GET /sprites`, `GET /sprite-ids` | Pi key | Used by the Pi's sync job to pull down newly approved sprites and prune deleted ones. |
