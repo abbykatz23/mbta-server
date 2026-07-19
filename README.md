@@ -32,8 +32,8 @@ billing) stores submissions and display state.
 
 ## Deploying
 
-Requires two SSM parameters to exist first (referenced in `template.yaml`):
-`/mbta/pi_api_key` and `/mbta/allowed_origin`.
+Requires three SSM parameters to exist first (referenced in `template.yaml`):
+`/mbta/pi_api_key`, `/mbta/allowed_origin`, and `/mbta/turnstile_secret_key`.
 
 ```bash
 sam build
@@ -49,8 +49,8 @@ function without a full stack deploy.
 pip install -r requirements.txt
 ```
 
-Set `ALLOWED_ORIGINS`, `S3_BUCKET`, `DYNAMODB_TABLE`, `PI_API_KEY` in the
-environment, then:
+Set `ALLOWED_ORIGINS`, `S3_BUCKET`, `DYNAMODB_TABLE`, `PI_API_KEY`,
+`TURNSTILE_SECRET_KEY` in the environment, then:
 
 ```bash
 uvicorn app:app --reload

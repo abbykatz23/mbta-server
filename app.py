@@ -1,8 +1,11 @@
 import base64
 import hmac
 import io
+import json
 import os
 import re
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 
@@ -26,6 +29,8 @@ app.add_middleware(
 S3_BUCKET = os.environ["S3_BUCKET"]
 DYNAMODB_TABLE = os.environ["DYNAMODB_TABLE"]
 PI_API_KEY = os.environ["PI_API_KEY"]
+TURNSTILE_SECRET_KEY = os.environ["TURNSTILE_SECRET_KEY"]
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 SPRITE_WIDTH = 26
 SPRITE_HEIGHT = 5
@@ -69,6 +74,7 @@ class SubmitRequest(BaseModel):
     birthday: str       # "MM-DD"
     pngData: str        # data URL: "data:image/png;base64,..."
     flip_rtl: bool = True
+    captchaToken: str
 
 
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
@@ -112,6 +118,18 @@ def _decode_png(png_data: str) -> bytes:
         raise HTTPException(status_code=400, detail="pngData base64 is invalid")
 
 
+def _verify_captcha(token: str) -> None:
+    data = urllib.parse.urlencode({"secret": TURNSTILE_SECRET_KEY, "response": token}).encode()
+    request = urllib.request.Request(TURNSTILE_VERIFY_URL, data=data, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            result = json.loads(response.read())
+    except Exception:
+        raise HTTPException(status_code=502, detail="Captcha verification unavailable")
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail="Captcha verification failed")
+
+
 def _validate_png_bytes(png_bytes: bytes) -> None:
     if len(png_bytes) > MAX_FILE_BYTES:
         raise HTTPException(status_code=400, detail=f"PNG must be under {MAX_FILE_BYTES} bytes")
@@ -143,6 +161,8 @@ def submit(body: SubmitRequest):
     name = re.sub(r'[^\x20-\x7E]', '', name).strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
+
+    _verify_captcha(body.captchaToken)
 
     count_resp = table.scan(
         FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("approved"),

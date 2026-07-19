@@ -11,6 +11,7 @@ Globals:
         DYNAMODB_TABLE: !Ref SubmissionsTable
         PI_API_KEY: !Sub "{{resolve:ssm:/mbta/pi_api_key}}"
         ALLOWED_ORIGIN: !Sub "{{resolve:ssm:/mbta/allowed_origin}}"
+        TURNSTILE_SECRET_KEY: !Sub "{{resolve:ssm:/mbta/turnstile_secret_key}}"
 
 Resources:
   MbtaServerFunction:
