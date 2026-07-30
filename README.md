@@ -8,11 +8,13 @@ Part of three repos: [mbta-display](https://github.com/abbykatz23/mbta-display) 
 client) · **mbta-server** (this repo) ·
 [mbta-frontend](https://github.com/abbykatz23/mbta-frontend) (submission site).
 
+**The meta-display repo has the most thorough readme**
+
 ## Endpoints
 
 | Route | Auth | Purpose |
 |---|---|---|
-| `POST /submit` | — | Frontend submits a hand-drawn pixel sprite (name, birthday, PNG data URL). Validates dimensions/size and a Turnstile captcha token, auto-approves. |
+| `POST /submit` | — | Frontend submits a hand-drawn pixel sprite (name, birthday, PNG data URL). Validates dimensions/size and a Turnstile captcha token. |
 | `GET /submissions` | — | Public list of approved submissions, powers the gallery page. |
 | `GET /special-trains` | — | List of the hardcoded monthly/one-off trains. |
 | `GET /sprites`, `GET /sprite-ids` | Pi key | Used by the Pi's sync job to pull down newly approved sprites and prune deleted ones. |
@@ -20,15 +22,10 @@ client) · **mbta-server** (this repo) ·
 | `POST /queue/{id}`, `POST /queue-special/{name}` | admin key | Force a specific sprite to play next on the physical display. |
 | `PUT /display-state`, `GET /display-state` | write: Pi key, read: — | The Pi pushes its current predictions/animation state every poll cycle; the frontend polls it to render a live simulation. |
 
-Auth is a single shared secret compared with `hmac.compare_digest` against the
-`X-API-Key` header — used both by the Pi (server-to-server) and by admin actions in
-the Gallery UI.
-
 ## Stack
 
 FastAPI + [Mangum](https://github.com/jordaneremieff/mangum) (ASGI on Lambda),
-deployed with AWS SAM. S3 stores sprite PNGs; DynamoDB (single table, on-demand
-billing) stores submissions and display state.
+deployed with AWS SAM. S3 stores sprite PNGs; DynamoDB stores submissions and display state.
 
 ## Deploying
 
