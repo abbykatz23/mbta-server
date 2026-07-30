@@ -8,6 +8,10 @@ Part of three repos: [mbta-display](https://github.com/abbykatz23/mbta-display) 
 client) · **mbta-server** (this repo) ·
 [mbta-frontend](https://github.com/abbykatz23/mbta-frontend) (submission site).
 
+You can submit a train right now at [makeatrain.pre-idea.com](https://makeatrain.pre-idea.com)
+(or [makeatrain.netlify.app](https://makeatrain.netlify.app) in case I don't renew my domain subscription hehe).
+DO IT!!! IT'S SO FUN!!!
+
 **The meta-display repo has the most thorough readme**
 
 ## Endpoints
