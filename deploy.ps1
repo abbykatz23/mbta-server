@@ -1,7 +1,7 @@
 # Builds the Lambda package and uploads it directly to the mbta-server function.
 # Usage: .\deploy.ps1
 
-$python312 = "C:\Users\abbyk\AppData\Local\Programs\Python\Python312"
+$python312 = "$env:LOCALAPPDATA\Programs\Python\Python312"
 $buildDir = "$PSScriptRoot\.aws-sam\build\MbtaServerFunction"
 $zipPath = "$env:TEMP\mbta-deploy.zip"
 $functionName = "mbta-server"

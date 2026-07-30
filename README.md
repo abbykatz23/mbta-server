@@ -43,7 +43,7 @@ function without a full stack deploy.
 ## Local dev
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 Set `ALLOWED_ORIGINS`, `S3_BUCKET`, `DYNAMODB_TABLE`, `PI_API_KEY`,
